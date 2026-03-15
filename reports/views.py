@@ -1,4 +1,9 @@
 from django.shortcuts import render
+from django.http import HttpResponse
+
+def health_check(request):
+    """Simple health check endpoint for Kubernetes readiness probes"""
+    return HttpResponse("ok")
 
 # Create your views here.
 from rest_framework import status

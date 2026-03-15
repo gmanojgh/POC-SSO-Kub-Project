@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: report-api
-        image: secure-report-api:latest
+        image: secure-report-project:latest
         imagePullPolicy: Never   # Use local image from Minikube
         ports:
         - containerPort: 8000
@@ -23,7 +23,7 @@ spec:
             name: report-api-secret
         readinessProbe:
           httpGet:
-            path: /api/auth/login
+            path: /api/health/
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 5
