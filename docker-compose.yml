@@ -23,10 +23,6 @@ services:
     build: .
     # Use runserver for local dev — Dockerfile CMD uses gunicorn for K8s
     command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - type: bind
-        source: .
-        target: /app                   # Live code reload during development
     ports:
       - "8000:8000"
     depends_on:
