@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Report API — Login</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: Arial, sans-serif; background: #f0f4f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); padding: 48px 40px; width: 420px; text-align: center; }
+        h1 { color: #1F4E79; font-size: 24px; margin-bottom: 8px; }
+        .subtitle { color: #666; font-size: 14px; margin-bottom: 32px; }
+        .divider { border: none; border-top: 1px solid #e0e0e0; margin: 24px 0; }
+        .form-group { text-align: left; margin-bottom: 16px; }
+        label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; font-weight: bold; }
+        input { width: 100%; padding: 10px 12px; border: 1px solid #d0d8e4; border-radius: 6px; font-size: 14px; outline: none; }
+        input:focus { border-color: #2E75B6; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; margin-bottom: 12px; }
+        .btn-login { background: #1F4E79; color: white; }
+        .btn-login:hover { background: #2E75B6; }
+        .btn-google { background: white; color: #333; border: 1px solid #d0d0d0; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .btn-google:hover { background: #f8f8f8; }
+        .error { color: #DB4437; font-size: 13px; margin-top: 8px; display: none; }
+        .profile { display: none; text-align: left; }
+        .profile.visible { display: block; }
+        .welcome { text-align: center; font-size: 20px; font-weight: bold; color: #1F4E79; margin-bottom: 4px; }
+        .role-badge { display: inline-block; padding: 4px 16px; border-radius: 20px; font-size: 13px; font-weight: bold; margin-bottom: 20px; }
+        .role-Admin { background: #FCE4D6; color: #C55A11; }
+        .role-Manager { background: #D6E4F0; color: #1F4E79; }
+        .role-Viewer { background: #E2F0D9; color: #1E6B3C; }
+        .section-title { font-size: 12px; color: #999; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+        .permissions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+        .perm { background: #f0f4f8; border: 1px solid #d0d8e4; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-family: monospace; }
+        .report-item { background: #f8f9fa; border-left: 4px solid #1F4E79; padding: 10px 14px; margin-bottom: 8px; border-radius: 0 6px 6px 0; font-size: 14px; }
+        .btn-reports { background: #1F4E79; color: white; }
+        .btn-logout { background: #f0f0f0; color: #333; }
+    </style>
+</head>
+<body>
+<div class="card">
+
+    <!-- ── Login Section ─────────────────────────────────────────────────── -->
+    <div id="loginSection">
+        <h1>Secure Report API</h1>
+        <p class="subtitle">Sign in to access your reports</p>
+        <hr class="divider">
+
+        <!-- Username / Password -->
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" placeholder="alice" autocomplete="username">
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="password123" autocomplete="current-password">
+        </div>
+        <button class="btn btn-login" onclick="loginWithPassword()">Sign In</button>
+
+        <p class="error" id="errorMsg"></p>
+
+        <hr class="divider">
+
+        <!-- Google Sign-In -->
+        <div id="g_id_onload"
+             data-client_id="REPLACE_WITH_YOUR_GOOGLE_CLIENT_ID"
+             data-callback="handleGoogleSignIn"
+             data-auto_prompt="false">
+        </div>
+        <div class="g_id_signin"
+             data-type="standard"
+             data-size="large"
+             data-theme="outline"
+             data-text="sign_in_with"
+             data-shape="rectangular"
+             data-logo_alignment="left"
+             data-width="340">
+        </div>
+    </div>
+
+    <!-- ── Profile Section ───────────────────────────────────────────────── -->
+    <div id="profileSection" class="profile">
+        <div class="welcome" id="welcomeText">Welcome!</div>
+        <div style="text-align:center; margin-bottom: 16px;">
+            <span class="role-badge" id="roleBadge">Viewer</span>
+        </div>
+        <div class="section-title">Your Permissions</div>
+        <div class="permissions" id="permissionsList"></div>
+        <hr class="divider">
+        <button class="btn btn-reports" onclick="loadReports()">View Reports</button>
+        <div id="reportsSection" style="margin-top: 12px;"></div>
+        <hr class="divider">
+        <button class="btn btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+
+</div>
+
+<!-- Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<script>
+    let accessToken = null;
+
+    // ── Username + Password Login ────────────────────────────────────────────
+    async function loginWithPassword() {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!username || !password) { showError('Please enter username and password'); return; }
+        try {
+            const res = await fetch('/api/auth/login/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            if (!res.ok) { showError(data.detail || 'Login failed'); return; }
+            accessToken = data.access;
+            await fetchAndShowProfile();
+        } catch { showError('Network error — is the server running?'); }
+    }
+
+    // ── Google Sign-In ───────────────────────────────────────────────────────
+    async function handleGoogleSignIn(googleResponse) {
+        try {
+            const res = await fetch('/api/auth/google/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id_token: googleResponse.credential })
+            });
+            const data = await res.json();
+            if (!res.ok) { showError(data.error || 'Google Sign-In failed'); return; }
+            accessToken = data.access;
+            showProfile(data.user);
+        } catch { showError('Network error — is the server running?'); }
+    }
+
+    // ── Profile ──────────────────────────────────────────────────────────────
+    async function fetchAndShowProfile() {
+        const res = await fetch('/api/me/', { headers: { 'Authorization': 'Bearer ' + accessToken } });
+        const data = await res.json();
+        showProfile(data);
+    }
+
+    function showProfile(user) {
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('profileSection').classList.add('visible');
+        document.getElementById('welcomeText').textContent = 'Welcome, ' + (user.username || user.email) + '!';
+        const badge = document.getElementById('roleBadge');
+        badge.textContent = user.role_name || user.role || 'No Role';
+        badge.className = 'role-badge role-' + (user.role_name || user.role);
+        const perms = document.getElementById('permissionsList');
+        perms.innerHTML = '';
+        (user.permissions || []).forEach(p => {
+            const s = document.createElement('span');
+            s.className = 'perm'; s.textContent = p;
+            perms.appendChild(s);
+        });
+        if (!user.permissions || user.permissions.length === 0) {
+            perms.innerHTML = '<span style="color:#999;font-size:13px">No permissions assigned</span>';
+        }
+    }
+
+    async function loadReports() {
+        const sec = document.getElementById('reportsSection');
+        sec.innerHTML = '<p style="color:#666;font-size:13px">Loading...</p>';
+        const res = await fetch('/api/reports/', { headers: { 'Authorization': 'Bearer ' + accessToken } });
+        if (res.status === 403) { sec.innerHTML = '<p style="color:#DB4437;font-size:13px">You do not have permission to view reports.</p>'; return; }
+        const data = await res.json();
+        sec.innerHTML = '';
+        (data.results || []).forEach(r => {
+            const d = document.createElement('div');
+            d.className = 'report-item';
+            d.innerHTML = '<strong>' + r.title + '</strong><br><span style="color:#666;font-size:12px">' + r.category + ' — by ' + r.created_by_username + '</span>';
+            sec.appendChild(d);
+        });
+        if (!data.results || data.results.length === 0) {
+            sec.innerHTML = '<p style="color:#666;font-size:13px">No reports yet.</p>';
+        }
+    }
+
+    function logout() {
+        accessToken = null;
+        document.getElementById('loginSection').style.display = 'block';
+        document.getElementById('profileSection').classList.remove('visible');
+        document.getElementById('reportsSection').innerHTML = '';
+        document.getElementById('username').value = '';
+        document.getElementById('password').value = '';
+        if (window.google) google.accounts.id.disableAutoSelect();
+    }
+
+    function showError(msg) {
+        const el = document.getElementById('errorMsg');
+        el.textContent = msg; el.style.display = 'block';
+        setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+
+    // Allow Enter key to submit login form
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Enter') loginWithPassword();
+    });
+</script>
+</body>
+</html>

@@ -1,24 +1,40 @@
 services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
   db:
-    image: postgres:15
+    image: postgres:15-alpine          # alpine = smaller image
     environment:
       POSTGRES_DB: reportdb
       POSTGRES_USER: reportuser
       POSTGRES_PASSWORD: reportpass
     ports:
-      - "5433:5432"
+      - "5433:5432"                    # 5433 externally avoids conflicts with local Postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
- 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reportuser -d reportdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Django API ────────────────────────────────────────────────────────────
   api:
     build: .
+    # Use runserver for local dev — Dockerfile CMD uses gunicorn for K8s
     command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - type: bind
+        source: .
+        target: /app                   # Live code reload during development
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy     # Wait for DB to be ready before starting
     env_file:
       - .env
+    restart: unless-stopped
 
 volumes:
   postgres_data:

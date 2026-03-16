@@ -1,42 +1,97 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Django API — Deployment + Service
+#
+# Deployment (not StatefulSet) because the API is stateless —
+# any pod can serve any request. Horizontal scaling is trivial.
+#
+# Rolling update strategy: bring up new pods before killing old ones
+# so there is zero downtime during deploys.
+# ─────────────────────────────────────────────────────────────────────────────
+
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: report-api
+  labels:
+    app: report-api
 spec:
-  replicas: 2           # Two instances for high availability
+  replicas: 2
+
   selector:
     matchLabels:
       app: report-api
+
+  # Zero-downtime rolling update:
+  #   - Never go below 1 available pod during a rollout
+  #   - Never run more than 3 pods simultaneously
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
   template:
     metadata:
       labels:
         app: report-api
     spec:
+      # Graceful shutdown — give gunicorn time to finish in-flight requests
+      terminationGracePeriodSeconds: 30
+
       containers:
-      - name: report-api
-        image: secure-report-project:latest
-        imagePullPolicy: Never   # Use local image from Minikube
-        ports:
-        - containerPort: 8000
-        envFrom:
-        - secretRef:
-            name: report-api-secret
-        readinessProbe:
-          httpGet:
-            path: /api/health/
-            port: 8000
-          initialDelaySeconds: 10
-          periodSeconds: 5
+        - name: report-api
+          image: secure-report-api:latest
+          imagePullPolicy: Never        # Use local Minikube image — no registry needed
+          ports:
+            - containerPort: 8000
+
+          # Load all env vars from the Kubernetes Secret
+          envFrom:
+            - secretRef:
+                name: report-api-secret
+
+          # Readiness probe — only send traffic once Django is up and responding
+          # Uses the unauthenticated /api/health/ endpoint
+          readinessProbe:
+            httpGet:
+              path: /api/health/
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Liveness probe — restart the pod if it becomes unresponsive
+          livenessProbe:
+            httpGet:
+              path: /api/health/
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
 ---
+
 apiVersion: v1
 kind: Service
 metadata:
   name: report-api-service
+  labels:
+    app: report-api
 spec:
   type: NodePort
   selector:
     app: report-api
   ports:
-  - port: 80
-    targetPort: 8000
-    nodePort: 30080
+    - name: http
+      port: 80
+      targetPort: 8000
+      nodePort: 30080

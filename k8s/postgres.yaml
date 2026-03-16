@@ -1,21 +1,41 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PostgreSQL — StatefulSet + Headless Service
+#
+# StatefulSet (not Deployment) because:
+#   - Pods get a stable, predictable name: postgres-0
+#   - PersistentVolumeClaim is tied to the pod identity — survives restarts
+#   - Safe ordered rolling updates for databases
+#
+# Headless Service (clusterIP: None) because:
+#   - Required by StatefulSet for stable DNS names
+#   - Other pods reach the DB at: postgres-service.default.svc.cluster.local
+# ─────────────────────────────────────────────────────────────────────────────
+
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres-service
+  labels:
+    app: postgres
 spec:
+  clusterIP: None        # Headless — required for StatefulSet DNS
   selector:
     app: postgres
   ports:
-  - port: 5432
-    targetPort: 5432
-  clusterIP: None        # Headless service — required for StatefulSets
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+
 ---
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
+  labels:
+    app: postgres
 spec:
-  serviceName: postgres-service   # Must match the service name above
+  serviceName: postgres-service
   replicas: 1
   selector:
     matchLabels:
@@ -25,36 +45,79 @@ spec:
       labels:
         app: postgres
     spec:
-      containers:
-      - name: postgres
-        image: postgres:15
-        ports:
-        - containerPort: 5432
-        env:
-        - name: POSTGRES_DB
-          valueFrom:
-            secretKeyRef:
-              name: report-api-secret
-              key: DB_NAME
-        - name: POSTGRES_USER
-          valueFrom:
-            secretKeyRef:
-              name: report-api-secret
-              key: DB_USER
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: report-api-secret
-              key: DB_PASSWORD
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql/data   # Where Postgres stores data inside the pod
+      # Graceful shutdown — give Postgres time to flush WAL before SIGKILL
+      terminationGracePeriodSeconds: 60
 
-  volumeClaimTemplates:             # This is what makes it a StatefulSet — dedicated storage per pod
-  - metadata:
-      name: postgres-storage
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 1Gi            
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: report-api-secret
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: report-api-secret
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: report-api-secret
+                  key: DB_PASSWORD
+            # Improve performance for containerised Postgres
+            - name: POSTGRES_INITDB_ARGS
+              value: "--encoding=UTF-8"
+
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+
+          # Readiness probe — only route traffic once Postgres accepts connections
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - reportuser
+                - -d
+                - reportdb
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 5
+
+          # Liveness probe — restart pod if Postgres stops accepting connections
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - reportuser
+                - -d
+                - reportdb
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+
+  # Dedicated PVC per pod — persists across pod restarts and reschedules
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

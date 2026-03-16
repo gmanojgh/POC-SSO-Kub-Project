@@ -1,28 +1,41 @@
 """
-URL configuration for config project.
+Root URL configuration for Secure Report API.
 
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/6.0/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+Auth endpoints:
+    POST /api/auth/login/       — username + password → JWT
+    POST /api/auth/refresh/     — refresh token → new access token
+    POST /api/auth/google/      — Google ID token → JWT
+
+App endpoints:
+    /api/  — see reports/urls.py
+    /      — login page (HTML)
 """
+
 from django.contrib import admin
-from django.urls import path, include
-from reports.google_auth import GoogleSignInView   
+from django.shortcuts import render
+from django.urls import include, path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
- 
+
+from reports.google_auth import GoogleSignInView
+
+
+def login_page(request):
+    """Serve the HTML login page at the root URL."""
+    return render(request, "login.html")
+
+
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/auth/google/', GoogleSignInView.as_view(), name='google_signin'),  
-    path('api/', include('reports.urls')),
+    # ── Frontend ───────────────────────────────────────────────────────────────
+    path("", login_page, name="login"),
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    path("admin/", admin.site.urls),
+
+    # ── Authentication ────────────────────────────────────────────────────────
+    path("api/auth/login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/auth/google/", GoogleSignInView.as_view(), name="google_signin"),
+
+    # ── Application API ───────────────────────────────────────────────────────
+    path("api/", include("reports.urls")),
 ]
